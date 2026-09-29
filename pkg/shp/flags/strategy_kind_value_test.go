@@ -3,18 +3,17 @@ package flags
 import (
 	"testing"
 
-	"github.com/onsi/gomega"
 	o "github.com/onsi/gomega"
-	buildv1alpha1 "github.com/shipwright-io/build/pkg/apis/build/v1alpha1"
+	buildv1beta1 "github.com/shipwright-io/build/pkg/apis/build/v1beta1"
 )
 
 func TestStrategyKindValue(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
+	g := o.NewWithT(t)
 
-	buildStrategyKind := buildv1alpha1.ClusterBuildStrategyKind
+	buildStrategyKind := buildv1beta1.ClusterBuildStrategyKind
 	v := NewStrategyKindValue(&buildStrategyKind)
 
-	expected := buildv1alpha1.NamespacedBuildStrategyKind
+	expected := buildv1beta1.NamespacedBuildStrategyKind
 
 	err := v.Set(string(expected))
 	g.Expect(err).To(o.BeNil())

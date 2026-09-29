@@ -24,9 +24,10 @@ func Command(p *params.Params, ioStreams *genericclioptions.IOStreams) *cobra.Co
 	command.AddCommand(
 		runner.NewRunner(p, ioStreams, listCmd()).Cmd(),
 		runner.NewRunner(p, ioStreams, logsCmd()).Cmd(),
-		runner.NewRunner(p, ioStreams, logsCmd()).Cmd(),
 		runner.NewRunner(p, ioStreams, createCmd()).Cmd(),
 		runner.NewRunner(p, ioStreams, cancelCmd()).Cmd(),
+		runner.NewRunner(p, ioStreams, deleteCmd()).Cmd(),
+		runner.NewRunner(p, ioStreams, gatherCmd()).Cmd(),
 	)
 	return command
 }

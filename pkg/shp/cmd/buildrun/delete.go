@@ -35,7 +35,7 @@ func (c *DeleteCommand) Cmd() *cobra.Command {
 }
 
 // Complete fills in data provided by user
-func (c *DeleteCommand) Complete(params *params.Params, args []string) error {
+func (c *DeleteCommand) Complete(_ *params.Params, _ *genericclioptions.IOStreams, args []string) error {
 	c.name = args[0]
 
 	return nil
@@ -53,7 +53,7 @@ func (c *DeleteCommand) Run(params *params.Params, ioStreams *genericclioptions.
 		return err
 	}
 
-	if err = clientset.ShipwrightV1alpha1().BuildRuns(params.Namespace()).Delete(c.cmd.Context(), c.name, metav1.DeleteOptions{}); err != nil {
+	if err = clientset.ShipwrightV1beta1().BuildRuns(params.Namespace()).Delete(c.cmd.Context(), c.name, metav1.DeleteOptions{}); err != nil {
 		return err
 	}
 

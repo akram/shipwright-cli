@@ -1,21 +1,21 @@
-package build
+package build // nolint:revive
 
 import (
-	"runtime"
+	"bytes"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	buildv1alpha1 "github.com/shipwright-io/build/pkg/apis/build/v1alpha1"
+	buildv1beta1 "github.com/shipwright-io/build/pkg/apis/build/v1beta1"
 	shpfake "github.com/shipwright-io/build/pkg/client/clientset/versioned/fake"
 	"github.com/shipwright-io/cli/pkg/shp/flags"
 	"github.com/shipwright-io/cli/pkg/shp/params"
+	"github.com/shipwright-io/cli/pkg/shp/reactor"
 	"github.com/spf13/cobra"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes/fake"
 	fakekubetesting "k8s.io/client-go/testing"
@@ -26,6 +26,8 @@ func TestStartBuildRunFollowLog(t *testing.T) {
 		name       string
 		phase      corev1.PodPhase
 		logText    string
+		to         string
+		noPodYet   bool
 		cancelled  bool
 		brDeleted  bool
 		podDeleted bool
@@ -33,40 +35,40 @@ func TestStartBuildRunFollowLog(t *testing.T) {
 		{
 			name:    "succeeded",
 			phase:   corev1.PodSucceeded,
-			logText: "Pod 'testpod' has succeeded!",
+			logText: "Pod \"testpod\" has succeeded!",
 		},
 		{
 			name:    "pending",
 			phase:   corev1.PodPending,
-			logText: "Pod 'testpod' is in state \"Pending\"",
+			logText: "Pod \"testpod\" is in state \"Pending\"",
 		},
 		{
 			name:    "unknown",
 			phase:   corev1.PodUnknown,
-			logText: "Pod 'testpod' is in state \"Unknown\"",
+			logText: "Pod \"testpod\" is in state \"Unknown\"",
 		},
 		{
 			name:      "failed-cancelled",
 			phase:     corev1.PodFailed,
 			cancelled: true,
-			logText:   "BuildRun 'testpod' has been canceled.",
+			logText:   "BuildRun \"testpod\" has been canceled.",
 		},
 		{
 			name:      "failed-br-deleted",
 			phase:     corev1.PodFailed,
 			brDeleted: true,
-			logText:   "BuildRun 'testpod' has been deleted.",
+			logText:   "BuildRun \"testpod\" has been deleted.",
 		},
 		{
 			name:       "failed-pod-deleted",
 			phase:      corev1.PodFailed,
 			podDeleted: true,
-			logText:    "Pod 'testpod' has been deleted.",
+			logText:    "Pod \"testpod\" has been deleted.",
 		},
 		{
 			name:    "failed-something-else",
 			phase:   corev1.PodFailed,
-			logText: "Pod 'testpod' has failed!",
+			logText: "BuildRun \"testpod\" has failed.",
 		},
 		{
 			name:  "running",
@@ -76,9 +78,19 @@ func TestStartBuildRunFollowLog(t *testing.T) {
 			// k8s folks to "be careful" with it; fortunately, what we do for tail and pod_watcher so far is within
 			// the realm of reliable.
 		},
+		{
+			name:    "timeout",
+			to:      "1ms",
+			logText: reactor.RequestTimeoutMessage,
+		},
+		{
+			name:     "no pod yet",
+			noPodYet: true,
+			logText:  "has not observed any pod events yet",
+		},
 	}
 
-	for _, test := range tests {
+	for i, test := range tests {
 		name := "testpod"
 		containerName := "container"
 		pod := &corev1.Pod{
@@ -86,8 +98,8 @@ func TestStartBuildRunFollowLog(t *testing.T) {
 				Namespace: metav1.NamespaceDefault,
 				Name:      name,
 				Labels: map[string]string{
-					buildv1alpha1.LabelBuild:    name,
-					buildv1alpha1.LabelBuildRun: name,
+					buildv1beta1.LabelBuild:    name,
+					buildv1beta1.LabelBuildRun: name,
 				},
 			},
 			Spec: corev1.PodSpec{
@@ -96,91 +108,127 @@ func TestStartBuildRunFollowLog(t *testing.T) {
 				}},
 			},
 		}
-		br := &buildv1alpha1.BuildRun{
+		br := &buildv1beta1.BuildRun{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: metav1.NamespaceDefault,
 				Name:      name,
 			},
 		}
 		shpclientset := shpfake.NewSimpleClientset()
+
 		// need this reactor since the Run method uses the ObjectMeta.GenerateName k8s feature to generate the random
 		// name for the BuildRun.  However, for our purposes with unit testing, we want to control the name of the BuildRun
 		// to facilitate the list/selector via labels that is also employed by the Run method.
-		createReactorFunc := func(action fakekubetesting.Action) (handled bool, ret kruntime.Object, err error) {
+		createReactorFunc := func(_ fakekubetesting.Action) (handled bool, ret kruntime.Object, err error) {
 			return true, br, nil
 		}
 		shpclientset.PrependReactor("create", "buildruns", createReactorFunc)
 		// need this reactor to handle returning our test BuildRun with whatever updates we make based on the various
 		// test bools that result in spec.state or deletion timestamp updates
-		getReactorFunc := func(action fakekubetesting.Action) (handled bool, ret kruntime.Object, err error) {
+		getReactorFunc := func(_ fakekubetesting.Action) (handled bool, ret kruntime.Object, err error) {
 			return true, br, nil
 		}
 		shpclientset.PrependReactor("get", "buildruns", getReactorFunc)
-		kclientset := fake.NewSimpleClientset(pod)
+		kclientset := fake.NewSimpleClientset()
+		if !test.noPodYet {
+			kclientset = fake.NewSimpleClientset(pod)
+		}
 		ccmd := &cobra.Command{}
 		cmd := &RunCommand{
-			cmd:             ccmd,
-			buildRunName:    name,
-			buildRunSpec:    flags.BuildRunSpecFromFlags(ccmd.Flags()),
-			follow:          true,
-			shpClientset:    shpclientset,
-			tailLogsStarted: make(map[string]bool),
-			watchLock:       sync.Mutex{},
+			cmd:          ccmd,
+			buildRunSpec: flags.BuildRunSpecFromFlags(ccmd.Flags()),
+			follow:       true,
 		}
 
 		// set up context
-		cmd.Cmd().ExecuteC()
-		param := params.NewParamsForTest(kclientset, shpclientset, nil, metav1.NamespaceDefault)
+		if _, err := cmd.Cmd().ExecuteC(); err != nil {
+			t.Error(err.Error())
+		}
+		pm := genericclioptions.NewConfigFlags(true)
+		if len(test.to) > 0 {
+			pm.Timeout = &tests[i].to
+		}
+		failureDuration := 1 * time.Millisecond
+		param := params.NewParamsForTest(kclientset, shpclientset, nil, pm, metav1.NamespaceDefault, &failureDuration, &failureDuration)
 
 		ioStreams, _, out, _ := genericclioptions.NewTestIOStreams()
 
 		switch {
 		case test.cancelled:
-			br.Spec.State = buildv1alpha1.BuildRunStateCancel
+			br.Spec.State = buildv1beta1.BuildRunRequestedStatePtr(buildv1beta1.BuildRunStateCancel)
+			br.Status.Conditions = []buildv1beta1.Condition{
+				{
+					Type:   buildv1beta1.Succeeded,
+					Status: corev1.ConditionFalse,
+				},
+			}
 		case test.brDeleted:
 			br.DeletionTimestamp = &metav1.Time{}
+			br.Status.Conditions = []buildv1beta1.Condition{
+				{
+					Type:   buildv1beta1.Succeeded,
+					Status: corev1.ConditionFalse,
+				},
+			}
 		case test.podDeleted:
 			pod.DeletionTimestamp = &metav1.Time{}
+			br.Status.Conditions = []buildv1beta1.Condition{
+				{
+					Type:   buildv1beta1.Succeeded,
+					Status: corev1.ConditionFalse,
+				},
+			}
+		case test.phase == corev1.PodRunning:
+			pod.Status.ContainerStatuses = append(pod.Status.ContainerStatuses, corev1.ContainerStatus{
+				State: corev1.ContainerState{
+					Running: &corev1.ContainerStateRunning{StartedAt: metav1.Now()},
+				},
+			})
 		}
 
-		cmd.Complete(param, []string{name})
+		if err := cmd.Complete(param, &ioStreams, []string{name}); err != nil {
+			t.Error(err.Error())
+		}
+
+		if len(test.to) > 0 {
+			if err := cmd.Run(param, &ioStreams); err != nil {
+				t.Error(err.Error())
+			}
+			checkLog(test.name, test.logText, cmd, out, t)
+			continue
+		}
+
 		go func() {
 			err := cmd.Run(param, &ioStreams)
 			if err != nil {
 				t.Errorf("%s", err.Error())
 			}
-
 		}()
 
-		// yield the processor, so the initialization in Run can occur; afterward, the watchLock should allow
-		// coordination between Run and onEvent
-		runtime.Gosched()
-
-		// even with our release of the context above with Gosched(), repeated runs in CI have surfaced occasional timing issues between
-		// cmd.Run() finishing initialization and cmd.onEvent trying to used struct variables, resulting in panics; so we employ the lock here
-		// to insure the required initializations have run; this is still better than a generic "sleep log enough for
-		// the init to occur.
-		cmd.watchLock.Lock()
-		err := wait.PollImmediate(1*time.Second, 3*time.Second, func() (done bool, err error) {
-			// check any of the vars on RunCommand that are used in onEvent and make sure they are set;
-			// we are verifying the initialization done in Run() on RunCommand is complete
-			if cmd.pw != nil && cmd.ioStreams != nil && cmd.shpClientset != nil {
-				cmd.watchLock.Unlock()
-				return true, nil
-			}
-			return false, nil
-		})
-		if err != nil {
-			cmd.watchLock.Unlock()
-			t.Errorf("Run initialization did not complete in time")
+		// when employing the Run() method in a multi-threaded capacity, we must make sure
+		// the underlying Follower/PodWatcher watches are sync'ed and ready for use before
+		// we start populating the event queue
+		ready := cmd.FollowerReady()
+		if !ready {
+			t.Errorf("%s follower no ready", test.name)
 		}
 
-		// mimic watch events, bypassing k8s fake client watch hoopla whose plug points are not always useful;
-		pod.Status.Phase = test.phase
-		cmd.onEvent(pod)
-		if !strings.Contains(out.String(), test.logText) {
-			t.Errorf("test %s: unexpected output: %s", test.name, out.String())
+		if !test.noPodYet {
+			// mimic watch events, bypassing k8s fake client watch hoopla whose plug points are not always useful;
+			pod.Status.Phase = test.phase
+			_ = cmd.follower.OnEvent(pod)
+		} else {
+			cmd.follower.OnNoPodEventsYet(nil)
 		}
+		checkLog(test.name, test.logText, cmd, out, t)
+	}
+}
 
+func checkLog(name, text string, cmd *RunCommand, out *bytes.Buffer, t *testing.T) {
+	// need to employ log lock since accessing same iostream out used by Run cmd
+	cmd.follower.GetLogLock().Lock()
+	defer cmd.follower.GetLogLock().Unlock()
+	if !strings.Contains(out.String(), text) {
+		t.Errorf("test %s: unexpected output: %s", name, out.String())
 	}
 }

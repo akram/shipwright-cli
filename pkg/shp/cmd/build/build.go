@@ -1,4 +1,4 @@
-package build
+package build // nolint:revive
 
 import (
 	"github.com/spf13/cobra"
@@ -27,6 +27,7 @@ func Command(p *params.Params, ioStreams *genericclioptions.IOStreams) *cobra.Co
 		runner.NewRunner(p, ioStreams, listCmd()).Cmd(),
 		runner.NewRunner(p, ioStreams, deleteCmd()).Cmd(),
 		runner.NewRunner(p, ioStreams, runCmd()).Cmd(),
+		runner.NewRunner(p, ioStreams, uploadCmd()).Cmd(),
 	)
 	return command
 }

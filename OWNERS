@@ -1,22 +1,29 @@
 # See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
 
 approvers:
-- sbose78
-- otaviof
 - qu1queee
-- adambkaplan
-- gabemontero
 - SaschaSchwarze0
 - HeavyWombat
-- alicerum
+- IrvingMg
 
 reviewers:
-- sbose78
-- otaviof
 - qu1queee
 - SaschaSchwarze0
-- adambkaplan
-- gabemontero
 - HeavyWombat
+- rxinui
+- kaizakin
+- IrvingMg
+
+emeritus_approvers:
+- adambkaplan # 2026-06-17
+- alicerum #2022-08-15
+- gabemontero # 2022-08-15
+- sbose78 # 2022-08-15
+- otaviof # 2024-05-24
+- coreydaley # 2024-05-24
+
+emeritus_reviewers:
+- otaviof # 2024-05-24
+- coreydaley # 2024-05-24
 - ImJasonH
-- alicerum
+- hasanawad94 # 2026-08-09

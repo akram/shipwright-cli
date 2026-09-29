@@ -1,0 +1,55 @@
+---
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release tag'
+        required: true
+      previous-tag:
+        description: 'Previous release tag'
+        required: true
+      git-ref:
+        description: 'Git reference for the release. Use an appropriate release-v* branch, tag, or commit SHA.'
+        required: true
+jobs:
+  release:
+    name: Release
+    if: ${{ github.repository == 'shipwright-io/cli' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # To be able to update releases
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.git-ref }}
+        fetch-depth: 0
+    - name: Setup
+      uses: ./.github/actions/setup
+
+    - name: Tag release
+      run: |
+        git config --global user.name "${GITHUB_ACTOR}"
+        git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+        git tag -a "${{ inputs.release }}" -m "Release ${{ inputs.release }}" --force
+        git push origin "${{ inputs.release }}"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build Release Changelog
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PREVIOUS_TAG: ${{ inputs.previous-tag }}
+      # This creates a set of release notes at Changes.md
+      run: |
+        export GITHUB_TOKEN
+        export PREVIOUS_TAG
+        "${GITHUB_WORKSPACE}/.github/draft_release_notes.sh"
+
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        args: release --clean --release-notes /tmp/release-notes/Changes.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

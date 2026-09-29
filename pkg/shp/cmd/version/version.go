@@ -1,0 +1,31 @@
+package version // nolint:revive
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+)
+
+var version string
+
+// Command returns Version subcommand of Shipwright CLI
+// for retrieving the shp version
+func Command(ioStreams *genericclioptions.IOStreams) *cobra.Command {
+	command := &cobra.Command{
+		Use:     "version",
+		Aliases: []string{"v"},
+		Short:   "version",
+		Annotations: map[string]string{
+			"commandType": "main",
+		},
+		Run: func(_ *cobra.Command, _ []string) {
+			if version == "" {
+				version = "development"
+			}
+
+			fmt.Fprintf(ioStreams.Out, "version: %s\n", version)
+		},
+	}
+	return command
+}

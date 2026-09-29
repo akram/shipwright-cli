@@ -1,9 +1,9 @@
-package build
+package build // nolint:revive
 
 import (
 	"fmt"
 
-	buildv1alpha1 "github.com/shipwright-io/build/pkg/apis/build/v1alpha1"
+	buildv1beta1 "github.com/shipwright-io/build/pkg/apis/build/v1beta1"
 	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,15 +12,17 @@ import (
 	"github.com/shipwright-io/cli/pkg/shp/cmd/runner"
 	"github.com/shipwright-io/cli/pkg/shp/flags"
 	"github.com/shipwright-io/cli/pkg/shp/params"
-	"github.com/shipwright-io/cli/pkg/shp/util"
 )
 
 // CreateCommand contains data input from user
 type CreateCommand struct {
 	cmd *cobra.Command // cobra command instance
 
-	name      string                   // build resource's name
-	buildSpec *buildv1alpha1.BuildSpec // stores command-line flags
+	name         string                  // build resource's name
+	buildSpec    *buildv1beta1.BuildSpec // stores command-line flags
+	dockerfile   *string                 // For dockerfile parameter
+	builderImage *string                 // For builder image parameter
+
 }
 
 const buildCreateLongDesc = `
@@ -35,7 +37,7 @@ func (c *CreateCommand) Cmd() *cobra.Command {
 }
 
 // Complete fills internal subcommand structure for future work with user input
-func (c *CreateCommand) Complete(params *params.Params, args []string) error {
+func (c *CreateCommand) Complete(_ *params.Params, _ *genericclioptions.IOStreams, args []string) error {
 	switch len(args) {
 	case 1:
 		c.name = args[0]
@@ -54,30 +56,57 @@ func (c *CreateCommand) Validate() error {
 }
 
 // Run executes the creation of a new Build instance using flags to fill up the details.
-func (c *CreateCommand) Run(params *params.Params, io *genericclioptions.IOStreams) error {
-	b := &buildv1alpha1.Build{
+func (c *CreateCommand) Run(params *params.Params, ioStreams *genericclioptions.IOStreams) error {
+	b := &buildv1beta1.Build{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: c.name,
 		},
 		Spec: *c.buildSpec,
 	}
 
-	envs, err := c.cmd.Flags().GetStringArray("env")
-	if err != nil {
-		return err
-	}
-	b.Spec.Env = append(b.Spec.Env, util.StringSliceToEnvVarSlice(envs)...)
-
 	flags.SanitizeBuildSpec(&b.Spec)
+
+	if b.Spec.Source != nil {
+		if b.Spec.Source.OCIArtifact != nil && b.Spec.Source.OCIArtifact.Image != "" {
+			b.Spec.Source.Type = buildv1beta1.OCIArtifactType
+		} else if b.Spec.Source.Git != nil && b.Spec.Source.Git.URL != "" {
+			b.Spec.Source.Type = buildv1beta1.GitType
+		}
+
+		// print warning with regards to source bundle image being used
+		if b.Spec.Source.OCIArtifact != nil && b.Spec.Source.OCIArtifact.Image != "" {
+			fmt.Fprintf(ioStreams.Out, "Build %q uses a source bundle image, which means source code will be transferred to a container registry. It is advised to use private images to ensure the security of the source code being uploaded.\n", c.name)
+		}
+	}
+
+	if c.dockerfile != nil && *c.dockerfile != "" {
+		dockerfileParam := buildv1beta1.ParamValue{
+			Name: "dockerfile",
+			SingleValue: &buildv1beta1.SingleValue{
+				Value: c.dockerfile,
+			},
+		}
+		c.buildSpec.ParamValues = append(c.buildSpec.ParamValues, dockerfileParam)
+	}
+
+	if c.builderImage != nil && *c.builderImage != "" {
+		builderParam := buildv1beta1.ParamValue{
+			Name: "builder-image",
+			SingleValue: &buildv1beta1.SingleValue{
+				Value: c.builderImage,
+			},
+		}
+		c.buildSpec.ParamValues = append(c.buildSpec.ParamValues, builderParam)
+	}
 
 	clientset, err := params.ShipwrightClientSet()
 	if err != nil {
 		return err
 	}
-	if _, err := clientset.ShipwrightV1alpha1().Builds(params.Namespace()).Create(c.cmd.Context(), b, metav1.CreateOptions{}); err != nil {
+	if _, err := clientset.ShipwrightV1beta1().Builds(params.Namespace()).Create(c.cmd.Context(), b, metav1.CreateOptions{}); err != nil {
 		return err
 	}
-	fmt.Fprintf(io.Out, "Created build %q\n", c.name)
+	fmt.Fprintf(ioStreams.Out, "Created build %q\n", c.name)
 	return nil
 }
 
@@ -91,16 +120,15 @@ func createCmd() runner.SubCommand {
 
 	// instantiating command-line flags and the build-spec structure which receives the informed flag
 	// values, also marking certain flags as mandatory
-	buildSpecFlags := flags.BuildSpecFromFlags(cmd.Flags())
-	if err := cmd.MarkFlagRequired(flags.SourceURLFlag); err != nil {
-		panic(err)
-	}
+	buildSpecFlags, dockerfileFlag, builderImageFlag := flags.BuildSpecFromFlags(cmd.Flags())
 	if err := cmd.MarkFlagRequired(flags.OutputImageFlag); err != nil {
 		panic(err)
 	}
 
 	return &CreateCommand{
-		cmd:       cmd,
-		buildSpec: buildSpecFlags,
+		cmd:          cmd,
+		buildSpec:    buildSpecFlags,
+		dockerfile:   dockerfileFlag,
+		builderImage: builderImageFlag,
 	}
 }

@@ -7,14 +7,20 @@ PKG = ./pkg/...
 BIN ?= $(OUTPUT_DIR)/$(APP)
 KUBECTL_BIN ?= $(OUTPUT_DIR)/kubectl-$(APP)
 
-GO_FLAGS ?= -v -mod=vendor
+GO_FLAGS ?= -mod=vendor
 GO_TEST_FLAGS ?= -race -cover
+
+GO_PATH ?= $(shell go env GOPATH)
+GO_CACHE ?= $(shell go env GOCACHE)
 
 ARGS ?=
 
-# Tekton and Shipwright Build Controller versions for CI
-TEKTON_VERSION ?= v0.25.0
-SHIPWRIGHT_VERSION ?= v0.6.0
+# container registry deployment namespace
+REGISTRY_NAMESPACE ?= registry
+
+# hostname and namespace for the end-to-end tests producing container images
+OUTPUT_HOSTNAME ?= registry.registry.svc.cluster.local:32222
+OUTPUT_NAMESPACE ?= shipwright-io
 
 .EXPORT_ALL_VARIABLES:
 
@@ -53,11 +59,24 @@ test-unit:
 test-e2e:
 	./test/e2e/bats/core/bin/bats --recursive test/e2e/*.bats
 
-# wait for KinD cluster to be on ready state, so tests can be performed
-verify-kind:
-	./hack/verify-kind.sh
+# runs act, with optional arguments
+.PHONY: act
+act:
+	@act --secret="GITHUB_TOKEN=${GITHUB_TOKEN}" $(ARGS)
 
-# deploys Tekton and Shipwright Build Controller following the versions exported
-install-shipwright:
-	./hack/install-tekton.sh
-	./hack/install-shipwright.sh
+# Install golangci-lint via: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+.PHONY: sanity-check
+sanity-check:
+	golangci-lint run
+
+# generates the command-line help messages as markdown files, and in order to have a generic ${HOME}
+# rendered, it exports a fake home directory ("~"), and preserves the original GOPATH and GOCACHE to avoid
+# creating bogus files on the project directory.
+.PHONY: generate-docs
+generate-docs:
+	GOPATH="$(GO_PATH)" GOCACHE="$(GO_CACHE)" HOME="~" go run cmd/help/main.go --output-dir=./docs
+
+# checks if the generated documentation files are out of sync.
+.PHONY: verify-docs
+verify-docs: generate-docs
+	./hack/verify-docs.sh

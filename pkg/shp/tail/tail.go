@@ -48,16 +48,23 @@ func (t *Tail) Start(ns, podName, container string) {
 			fmt.Fprintln(t.stderr, err)
 			return
 		}
-		defer stream.Close()
+		defer func() {
+			if err := stream.Close(); err != nil {
+				fmt.Fprintf(t.stderr, "Failed to close stream: %v", err)
+			}
+		}()
 
 		go func() {
 			<-t.stopCh
-			stream.Close()
+			if err := stream.Close(); err != nil {
+				fmt.Fprintf(t.stderr, "Failed to close stream: %v", err)
+			}
 		}()
 
 		containerName := strings.TrimPrefix(container, "step-")
 		sc := bufio.NewScanner(stream)
 		for sc.Scan() {
+			// #nosec G705: this is intentially printing everything that the BuildRun container logs
 			fmt.Fprintf(t.stdout, "[%s] %s\n", containerName, sc.Text())
 		}
 	}()

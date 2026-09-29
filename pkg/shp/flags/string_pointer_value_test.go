@@ -3,13 +3,12 @@ package flags
 import (
 	"testing"
 
-	"github.com/onsi/gomega"
 	o "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 )
 
 func TestStringPointerValue(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
+	g := o.NewWithT(t)
 
 	flagName := "flag"
 	value := "value"

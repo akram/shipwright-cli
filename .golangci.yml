@@ -1,0 +1,17 @@
+---
+version: "2"
+linters:
+  enable:
+    - gosec
+    - revive
+    - misspell
+    - gocritic
+  disable:
+    - errcheck
+
+  exclusions:
+    rules:
+    - path: \.go$
+      text: "should have a package comment"
+      linters:
+      - revive

@@ -4,7 +4,7 @@ name: Unit Tests
 on:
   push:
     tags-ignore:
-      - '**'
+      - "**"
     branches:
       - main
   pull_request:
@@ -12,23 +12,11 @@ on:
       - main
 
 jobs:
-  test:
-    name: Unit Tests
+  test-unit:
     runs-on: ubuntu-latest
     steps:
-    - name: Setup Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.16
-    
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
-    
-    - name: Install Tools
-      run: sudo apt-get update && sudo apt-get install -y make gcc
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
 
-    - name: Build Application (shp)
-      run: make build
-
-    - name: Run Unit Tests
-      run: make test-unit
+      - name: Run Unit Tests
+        run: make test-unit

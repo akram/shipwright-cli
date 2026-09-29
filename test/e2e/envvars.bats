@@ -19,7 +19,7 @@ teardown() {
 	buildrun_name=$(random_name)
 
 	# create a Build with two environment variables
-	run shp build create ${build_name} --source-url=https://github.com/shipwright-io/sample-go --output-image=my-image --env=VAR_1=build-value-1 --env=VAR_2=build-value-2
+	run shp build create ${build_name} --source-git-url=https://github.com/shipwright-io/sample-go --output-image=my-image --env=VAR_1=build-value-1 --env=VAR_2=build-value-2
 	assert_success
 
 	# ensure that the build was successfully created
@@ -44,15 +44,15 @@ teardown() {
 	run kubectl get buildruns.shipwright.io/${buildrun_name} -o yaml
 	assert_success
 
-	
+
 	# ensure that the environment variables were inserted into the Build object
 	assert_output --partial "VAR_2" && assert_output --partial "buildrun-value-2"
 	assert_output --partial "VAR_3" && assert_output --partial "buildrun-value-3"
 
 	# get the taskrun that we created
-	run kubectl get taskruns.tekton.dev --selector=buildrun.shipwright.io/name=${buildrun_name} -o name 
+	run kubectl get taskruns.tekton.dev --selector=buildrun.shipwright.io/name=${buildrun_name} -o name
 	assert_success
-	
+
 	run kubectl get ${output} -o yaml
 	assert_success
 
